@@ -1,6 +1,6 @@
 import csv
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, astuple
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -8,10 +8,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 
-BASE_URL = "https://webscraper.io/"
-PRODUCT_FIELDS = ["title", "price", "category", "description", "image"]
 
-PRODUCT_OUTPUT_CSV_PATH = "products.csv"
+BASE_URL = "https://webscraper.io/"
 
 
 @dataclass
@@ -22,6 +20,9 @@ class Product:
     rating: int
     num_of_reviews: int
     additional_info: dict
+
+
+PRODUCT_FIELDS = [field.name for field in fields(Product)]
 
 
 _driver: WebDriver | None = None
@@ -61,7 +62,7 @@ def parse_single_product(product_soup: BeautifulSoup) -> Product:
         title=product_soup.select_one(".title")["title"],
         description=product_soup.select_one(".description").text,
         price=float(product_soup.select_one(".price").text.replace("$", "")),
-        rating=int(product_soup.select_one("p[data-rating]")["data-rating"]),
+        rating=len(product_soup.select(".review-count .ws-icon.ws-icon-star")),
         num_of_reviews=int(
             product_soup.select_one(".review-count").text.split()[0]
         ),
@@ -102,15 +103,7 @@ def write_products_to_csv(products: [Product], filename: str) -> None:
         writer = csv.writer(file)
         writer.writerow(PRODUCT_FIELDS)
         for product in products:
-            writer.writerow([
-                product.title,
-                product.description,
-                product.price,
-                product.rating,
-                product.num_of_reviews,
-                product.additional_info.get("category", ""),
-                product.additional_info.get("image", ""),
-            ])
+            writer.writerow(astuple(product))
 
 
 def get_all_products() -> None:
