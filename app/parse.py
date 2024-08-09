@@ -5,9 +5,9 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from selenium import webdriver
+from selenium.common import NoSuchElementException, ElementNotInteractableException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
-
 
 BASE_URL = "https://webscraper.io/"
 
@@ -23,7 +23,6 @@ class Product:
 
 
 PRODUCT_FIELDS = [field.name for field in fields(Product)]
-
 
 _driver: WebDriver | None = None
 
@@ -41,17 +40,21 @@ def product_hdd_block_prices(product_soup: BeautifulSoup) -> dict[str, float]:
     detail_url = urljoin(BASE_URL, product_soup.select_one(".title")["href"])
     driver = get_driver()
     driver.get(detail_url)
-    swatches = driver.find_element(By.CLASS_NAME, "swatches")
-    buttons = swatches.find_elements(By.TAG_NAME, "button")
 
     prices = {}
-
-    for button in buttons:
-        if not button.get_property("disabled"):
-            button.click()
-            prices[button.get_property("value")] = float(driver.find_element(
-                By.CLASS_NAME, "price"
-            ).text.replace("$", ""))
+    try:
+        swatches = driver.find_element(By.CLASS_NAME, "swatches")
+        if swatches:
+            buttons = swatches.find_elements(By.TAG_NAME, "button")
+            for button in buttons:
+                if not button.get_property("disabled"):
+                    button.click()
+                    prices[button.get_property("value")] = float(
+                        driver.find_element(
+                            By.CLASS_NAME, "price"
+                        ).text.replace("$", ""))
+    except NoSuchElementException:
+        return prices
 
     return prices
 
@@ -62,7 +65,7 @@ def parse_single_product(product_soup: BeautifulSoup) -> Product:
         title=product_soup.select_one(".title")["title"],
         description=product_soup.select_one(".description").text,
         price=float(product_soup.select_one(".price").text.replace("$", "")),
-        rating=len(product_soup.select(".review-count .ws-icon.ws-icon-star")),
+        rating=len(product_soup.select(".ratings span.ws-icon.ws-icon-star")),
         num_of_reviews=int(
             product_soup.select_one(".review-count").text.split()[0]
         ),
@@ -76,17 +79,20 @@ def get_page_products(url: str, paginate: bool = False) -> [Product]:
     driver.get(url)
 
     if paginate:
+        try:
+            cookies = driver.find_element(By.CLASS_NAME, "acceptCookies")
+            cookies.click()
+        except ElementNotInteractableException as e:
+            print(e)
         while True:
             try:
-                more_button = driver.find_element(By.CSS_SELECTOR,
-                                                  ".btn.btn-lg.btn-block."
-                                                  "btn-primary.ecomerce-"
-                                                  "items-scroll-more")
+                more_button = driver.find_element(
+                    By.CLASS_NAME,
+                    "ecomerce-items-scroll-more"
+                )
                 more_button.click()
             except Exception as e:
-                logging.info(f"No more pages to load or an error occurred: {e}")
-                break
-
+                print(e)
     page_soup = BeautifulSoup(driver.page_source, "html.parser")
     product_soups = page_soup.select(".thumbnail")
     return [parse_single_product(product_soup)
